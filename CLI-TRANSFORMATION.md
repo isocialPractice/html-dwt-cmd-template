@@ -2,7 +2,7 @@
 
 ## Overview
 
-The html-dwt-cmd-template project has been successfully transformed from a VS Code extension into a command-line tool while preserving all core functionality. The transformation uses a platform abstraction layer that allows the same core logic to work in both VS Code and CLI environments.
+The html-dwt-cmd-template project has been successfully transformed from a VS Code extension [html-dwt-template](https://github.com/isocialPractice/html-dwt-template)into a command-line tool while preserving all core functionality. The transformation uses a platform abstraction layer that allows the same core logic to work in both VS Code and CLI environments.
 
 ## What Was Completed
 

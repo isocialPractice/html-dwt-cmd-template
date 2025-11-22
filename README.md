@@ -1,6 +1,16 @@
-# HTML DWT Template Command-Line Tool
+# HTML Dreamweaver Template CLI Tool
 
-Dreamweaver-style templating system as a command-line tool, including editable region preservation, automated template-to-instance sync, and diff-based safety workflows.
+A command-line tool for managing Dreamweaver-style HTML templates without requiring VS Code or Dreamweaver. Preserve editable regions while updating template structure across your entire site.
+
+## Features
+
+- ✅ **Update all HTML files** based on template changes
+- ✅ **Preserve editable regions** while updating non-editable content
+- ✅ **Automatic backups** before every update
+- ✅ **Pattern-based file discovery** (supports `**/*.{html,htm,php}`)
+- ✅ **Template/instance synchronization** with diff-based safety workflows
+- ✅ **Optional and repeating regions** support
+- ✅ **Clean exit** - no hanging processes
 
 ## Quick Start
 
@@ -12,120 +22,128 @@ Dreamweaver-style templating system as a command-line tool, including editable r
    cd html-dwt-cmd-template
    ```
 
-2. Install dependencies and build the tool:
-   ```cmd
+2. Install dependencies and build:
+   ```bash
    npm install
    npm run compile
    ```
 
-3. Link the CLI globally (optional):
-   ```cmd
+3. (Optional) Link globally to use `html-dwt-cmd` from anywhere:
+   ```bash
    npm link
    ```
 
-### Usage
+### Basic Usage
 
 Run from your site root directory (the directory containing a `Templates/` folder):
 
-```cmd
-# Find all pages using a template
-html-dwt-cmd find-instances Templates/main.dwt
-
-# Update all files with prompts for each change
-html-dwt-cmd update-all Templates/main.dwt
-
+```bash
 # Update all files automatically without prompts
 html-dwt-cmd update-all Templates/main.dwt --auto-apply
+
+# Update with prompts for each change
+html-dwt-cmd update-all Templates/main.dwt
+
+# Find all pages using a template
+html-dwt-cmd find-instances Templates/main.dwt
 
 # Show editable regions in a file
 html-dwt-cmd show-regions pages/index.html
 
-# Create a new page from a template
-html-dwt-cmd create-page Templates/main.dwt --output pages/new-page.html
+# Get help
+html-dwt-cmd --help
+```
 
-# Restore from last backup
-html-dwt-cmd restore-backup
+If not globally linked, use:
+
+```bash
+node out/cli.js update-all Templates/main.dwt --auto-apply
 ```
 
 If you're not in the site root directory, use `--cwd`:
 
-```cmd
+```bash
 html-dwt-cmd update-all Templates/main.dwt --cwd /path/to/site
 ```
 
-## Command Reference
+## Commands
 
-### `sync [template]`
-Synchronize a template file with its instances. For each instance file, you'll be prompted to review changes before applying.
+### `update-all <template>` ⭐ Primary Command
 
-**Example:**
-```cmd
-html-dwt-cmd sync Templates/main.dwt
-```
-
-### `update-all [template]`
-Update all instance files using the specified template. Shows diffs and prompts for each file unless `--auto-apply` is used.
+Updates all HTML files that reference the specified template.
 
 **Options:**
-- `--auto-apply` / `-a` - Apply changes to all files without prompting
+- `--auto-apply` / `-a` - Apply changes without prompting (recommended for automation)
+- `--cwd <path>` - Set working directory (defaults to current directory)
 
 **Example:**
-```cmd
-html-dwt-cmd update-all Templates/main.dwt --auto-apply
+```bash
+html-dwt-cmd update-all Templates/page.dwt --auto-apply
 ```
 
-### `find-instances [template]`
+**What it does:**
+1. Scans site directory for HTML files using the specified template
+2. Creates backups in `.html-dwt-cmd-template-backups/`
+3. Merges template changes with instance content
+4. Preserves all editable regions (`<!-- InstanceBeginEditable -->`)
+5. Updates non-editable content from template
+6. Writes updated files
+
+### `find-instances <template>`
+
 Find and list all HTML/PHP files that use the specified template.
 
 **Example:**
-```cmd
+```bash
 html-dwt-cmd find-instances Templates/main.dwt
 ```
 
-### `create-page [template]`
-Create a new page from a template with all editable regions ready for content.
+### `show-regions <file>`
 
-**Options:**
-- `--output` / `-o` - Path for the new page (required)
-
-**Example:**
-```cmd
-html-dwt-cmd create-page Templates/main.dwt --output pages/about.html
-```
-
-### `show-regions [file]`
 Display all editable regions defined in a template or instance file.
 
 **Example:**
-```cmd
+```bash
 html-dwt-cmd show-regions pages/index.html
 ```
 
-### `restore-backup`
-Restore files from the last automatic backup. Backups are created before template updates.
+### Other Commands (Planned)
 
-**Example:**
-```cmd
-html-dwt-cmd restore-backup
-```
+- `sync [template]` - Sync template with instances (with interactive prompts)
+- `create-page [template]` - Create new page from template
+- `restore-backup` - Restore from automatic backup
 
-## Features
+**Note:** Currently, `update-all` is the primary fully-implemented command.
 
-### Implemented
-- **Template/instance synchronization** - Preserve editable content while updating template structure
-- **Optional-region conversion** - Conditional blocks based on template parameters
-- **Repeating-region support** - Helpers for inserting entries and managing repeated content
-- **Safety checks with diffs** - Review changes before they're applied
-- **Automatic backups** - Rolling backups in `.html-dwt-cmd-template-backups/`
-- **Find instances** - Locate all files using a template
-- **Show editable regions** - List available edit areas in any file
+## How It Works
 
 ### Workflow
-1. Edit your template file (`.dwt` in `Templates/` folder)
-2. Run `html-dwt-cmd update-all Templates/yourtemplate.dwt`
-3. Review the diff for each instance file
-4. Choose to apply, skip, or cancel
-5. Backups are automatically created before changes
+
+1. **Edit your template** - Modify `.dwt` file in `Templates/` folder
+2. **Run update command** - `html-dwt-cmd update-all Templates/yourtemplate.dwt --auto-apply`
+3. **Automatic processing:**
+   - Finds all instance files
+   - Creates backups
+   - Merges template changes
+   - Preserves editable region content
+   - Updates non-editable structure
+
+### Architecture
+
+The tool uses a **hybrid architecture** for maximum reliability:
+
+- **Platform Abstraction Layer** - Provides file system and interaction interfaces
+- **vscode Shim** - Allows existing VS Code extension code to run in CLI mode
+- **Template Engine** - Dreamweaver-compatible HTML template merging logic (1400+ lines of tested code)
+
+This approach preserves all the thoroughly-tested template merging logic while enabling CLI operation.
+
+### File Patterns
+
+The tool automatically:
+
+- **Includes:** `**/*.html`, `**/*.htm`, `**/*.php`
+- **Excludes:** `Templates/`, `.html-dwt-cmd-template-backups/`, `.html-dwt-template-backups/`
 
 ## Directory Structure
 
@@ -174,22 +192,79 @@ your-site/
 
 Backups are automatically created in `.html-dwt-cmd-template-backups/` before any template update:
 
-- Rolling backups keep the last 3 versions
-- Organized by template name
-- Preserves folder structure
-- Restore with `html-dwt-cmd restore-backup`
+- **Rolling backups** keep the last 3 versions per template
+- **Organized** by template name
+- **Preserves** folder structure
+- **Safe** - all changes can be reverted
 
-## Known Limitations
+## Requirements
 
-- Nested templates (templates based on other templates) are supported but complex
-- Export/import as XML (Dreamweaver `Export/Import`) not implemented
-- Visual editors for parameter configuration not available in CLI mode
-- Tag-attribute bindings (`TemplateBeginEditable tag="..." attribute="..."`) limited support
+- **Node.js** 14.0.0 or higher
+- **TypeScript** (for development/building)
+
+## Troubleshooting
+
+### Template not found
+
+Ensure the template path is relative to the site root (where you run the command).
+
+### No instances found
+
+Check that:
+1. HTML files contain `<!-- InstanceBegin template="/Templates/yourtemplate.dwt" -->`
+2. Template path matches exactly (case-sensitive)
+3. Files aren't in excluded directories (`Templates/`, backup folders)
+
+### CLI hangs or doesn't exit
+
+**Fixed in current version.** The CLI now properly exits after completion.
+
+## Exit Codes
+
+- `0` - Success
+- `1` - Error or exception
+- `2` - Cancelled by user
+
+## Development
+
+### Project Structure
+
+```
+src/
+  cli.ts                    - CLI entry point
+  cli/commands.ts           - Command implementations
+  adapters/
+    types.ts                - Platform interface definitions
+    cli-adapter.ts          - CLI-specific implementations
+    platform.ts             - Platform selector
+  vscode-shim.ts            - VS Code compatibility layer
+  setup-cli-environment.ts  - Module resolution override
+  features/update/
+    updateEngine.ts         - Template merging engine (core logic)
+```
+
+### Building
+
+```bash
+npm run compile
+```
+
+### Testing
+
+```bash
+cd your-test-site
+node path/to/out/cli.js update-all Templates/yourtemplate.dwt --auto-apply
+```
 
 ## Contributing
 
-Contributions welcome! See the spec in `.github/spec/spec-tool-html-dwt-cmd-template-extension.md` for the full roadmap.
+Contributions welcome! See [TODO.md](TODO.md) for planned enhancements and architecture notes.
 
 ## License
 
-See LICENSE file for details.
+See [LICENSE](LICENSE) file for details.
+
+## Documentation
+
+- **[TODO.md](TODO.md)** - Future enhancements, architecture decisions, effort estimates
+- **[CODING_STANDARDS.md](CODING_STANDARDS.md)** - Code style guidelines
