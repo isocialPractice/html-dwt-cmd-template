@@ -302,12 +302,133 @@ export async function createPage(context: CliContext, templatePath: string, outp
   const fullOutputPath = path.isAbsolute(outputPath) ? outputPath : path.join(context.siteRoot, outputPath);
 
   console.log(`Creating new page from template: ${path.basename(fullTemplatePath)}`);
-  console.log(`Output: ${outputPath}`);
+  console.log(`Output: ${fullOutputPath}`);
   
-  // TODO: Implement page creation logic
-  console.log('Create page functionality will be implemented');
+  // Check if output file already exists
+  if (fs.existsSync(fullOutputPath)) {
+    console.error(`File already exists: ${fullOutputPath}`);
+    console.error('Use a different output path or delete the existing file first.');
+    process.exit(1);
+  }
+
+  try {
+    // Read template content
+    let templateContent = fs.readFileSync(fullTemplatePath, 'utf8');
+
+    // Calculate the relative path from the new file to the template
+    const relativeTemplatePath = path.relative(path.dirname(fullOutputPath), fullTemplatePath).replace(/\\/g, '/');
+
+    // Extract codeOutsideHTMLIsLocked from template if it exists
+    const templateInfoMatch = templateContent.match(/<!--\s*TemplateInfo\s+codeOutsideHTMLIsLocked="(true|false)"\s*-->/i);
+    const codeOutsideHTMLIsLocked = templateInfoMatch ? templateInfoMatch[1] : 'false';
+
+    // Count editable regions for reporting
+    const editableRegionRegex = /<!--\s*TemplateBeginEditable\s+name="([^"]+)"\s*-->/g;
+    const regionNames = new Set<string>();
+    let match;
+    while ((match = editableRegionRegex.exec(templateContent)) !== null) {
+      regionNames.add(match[1]);
+    }
+
+    console.log(`Found ${regionNames.size} editable regions: ${Array.from(regionNames).join(', ')}`);
+
+    // Convert template content to instance content
+    let instanceContent = convertTemplateToInstance(templateContent, relativeTemplatePath, codeOutsideHTMLIsLocked);
+
+    // Create directory if it doesn't exist
+    const outputDir = path.dirname(fullOutputPath);
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+      console.log(`Created directory: ${outputDir}`);
+    }
+
+    // Write the file
+    fs.writeFileSync(fullOutputPath, instanceContent, 'utf8');
+    console.log(`✅ Successfully created: ${fullOutputPath}`);
+    
+    logProcessCompletion('cli:create-page', 0);
+  } catch (error) {
+    console.error(`Error creating page: ${error instanceof Error ? error.message : String(error)}`);
+    logProcessCompletion('cli:create-page', 1);
+    process.exit(1);
+  }
+}
+
+/**
+ * Converts template content to instance content by:
+ * 1. Adding InstanceBegin/InstanceEnd markers
+ * 2. Converting TemplateBeginEditable -> InstanceBeginEditable
+ * 3. Converting TemplateParam -> InstanceParam
+ * 4. Removing TemplateInfo markers
+ * 5. Preserving all content including non-editable regions
+ */
+function convertTemplateToInstance(templateContent: string, relativeTemplatePath: string, codeOutsideHTMLIsLocked: string): string {
+  let content = templateContent;
+
+  // Remove TemplateInfo marker (it's only in the template, not instances)
+  content = content.replace(/<!--\s*TemplateInfo\s+codeOutsideHTMLIsLocked="(?:true|false)"\s*-->\s*/gi, '');
+
+  // Convert TemplateBeginEditable to InstanceBeginEditable
+  content = content.replace(/<!--\s*TemplateBeginEditable\s+name="([^"]+)"\s*-->/gi, 
+    '<!-- InstanceBeginEditable name="$1" -->');
   
-  logProcessCompletion('cli:create-page', 0);
+  // Convert TemplateEndEditable to InstanceEndEditable
+  content = content.replace(/<!--\s*TemplateEndEditable\s*-->/gi, 
+    '<!-- InstanceEndEditable -->');
+
+  // Convert TemplateParam to InstanceParam (preserving all attributes)
+  content = content.replace(/<!--\s*TemplateParam\s+name="([^"]+)"\s+type="([^"]+)"\s+value="([^"]*)"\s*-->/gi,
+    '<!-- InstanceParam name="$1" type="$2" value="$3" -->');
+
+  // Convert TemplateBeginRepeat to InstanceBeginRepeat
+  content = content.replace(/<!--\s*TemplateBeginRepeat\s+name="([^"]+)"\s*-->/gi,
+    '<!-- InstanceBeginRepeat name="$1" -->');
+  
+  // Convert TemplateEndRepeat to InstanceEndRepeat
+  content = content.replace(/<!--\s*TemplateEndRepeat\s*-->/gi,
+    '<!-- InstanceEndRepeat -->');
+
+  // Convert TemplateBeginIf to InstanceBeginIf
+  content = content.replace(/<!--\s*TemplateBeginIf\s+cond="([^"]+)"\s*-->/gi,
+    '<!-- InstanceBeginIf cond="$1" -->');
+  
+  // Convert TemplateEndIf to InstanceEndIf
+  content = content.replace(/<!--\s*TemplateEndIf\s*-->/gi,
+    '<!-- InstanceEndIf -->');
+
+  // Replace template parameter placeholders @@(param)@@ with resolved values
+  // Extract all InstanceParam values first
+  const paramValues = new Map<string, string>();
+  const paramRegex = /<!--\s*InstanceParam\s+name="([^"]+)"\s+type="[^"]+"\s+value="([^"]*)"\s*-->/gi;
+  let paramMatch;
+  while ((paramMatch = paramRegex.exec(content)) !== null) {
+    paramValues.set(paramMatch[1], paramMatch[2]);
+  }
+
+  // Replace @@(paramName)@@ with actual values
+  content = content.replace(/@@\(([^)]+)\)@@/g, (match, paramName) => {
+    return paramValues.get(paramName) || match;
+  });
+
+  // Find the position to insert InstanceBegin marker (after opening <html> tag)
+  const htmlTagMatch = content.match(/(<html[^>]*>)/i);
+  
+  if (htmlTagMatch) {
+    const htmlTag = htmlTagMatch[1];
+    const instanceBeginMarker = `<!-- InstanceBegin template="${relativeTemplatePath}" codeOutsideHTMLIsLocked="${codeOutsideHTMLIsLocked}" -->`;
+    
+    // Insert InstanceBegin right after the opening <html> tag
+    content = content.replace(htmlTag, `${htmlTag}${instanceBeginMarker}\n`);
+    
+    // Add InstanceEnd before closing </html> tag
+    content = content.replace(/(<\/html>)/i, '<!-- InstanceEnd -->$1');
+  } else {
+    // If no <html> tag found, wrap entire content
+    const instanceBeginMarker = `<!-- InstanceBegin template="${relativeTemplatePath}" codeOutsideHTMLIsLocked="${codeOutsideHTMLIsLocked}" -->`;
+    content = `${instanceBeginMarker}\n${content}\n<!-- InstanceEnd -->`;
+  }
+
+  return content;
 }
 
 export async function showRegions(context: CliContext, filePath: string): Promise<void> {
