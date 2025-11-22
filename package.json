@@ -1,0 +1,54 @@
+{
+    "name": "html-dwt-cmd-template",
+    "description": "Command-line tool for HTML template system that emulates Adobe Dreamweaver templating.",
+    "version": "1.0.0",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/isocialPractice/html-dwt-cmd-template.git"
+    },
+    "bin": {
+        "html-dwt-cmd": "./out/cli.js"
+    },
+    "engines": {
+        "node": ">=14.0.0"
+    },
+    "keywords": [
+        "adobe",
+        "cli",
+        "command-line",
+        "content",
+        "dreamweaver",
+        "dwt",
+        "editable",
+        "htm",
+        "html",
+        "php",
+        "region",
+        "repeatable",
+        "site",
+        "template",
+        "templating",
+        "tool",
+        "web",
+        "website"
+    ],
+    "scripts": {
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "test:dw": "node scripts/test-harness.js",
+        "test:guided": "node scripts/guided-walkthrough.js",
+        "test:diff": "node scripts/smart-diff-checker.js",
+        "cli": "node out/cli.js"
+    },
+    "devDependencies": {
+        "@types/node": "16.x",
+        "typescript": "^4.9.4"
+    },
+    "dependencies": {
+        "diff": "^8.0.2",
+        "chalk": "^4.1.2"
+    },
+    "optionalDependencies": {
+        "@types/vscode": "^1.74.0"
+    }
+}
