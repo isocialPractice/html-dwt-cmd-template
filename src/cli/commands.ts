@@ -21,6 +21,7 @@ import {
 export interface CliContext {
   siteRoot: string;
   autoApply: boolean;
+  noBackup: boolean;
 }
 
 export async function initializeCLI(siteRoot: string): Promise<void> {
@@ -90,7 +91,8 @@ export async function updateAllFiles(context: CliContext, templatePath: string):
     // Call the engine with options
     const options: UpdateHtmlBasedOnTemplateOptions = {
       autoApplyAll: true, // Always auto-apply in CLI
-      suppressCompletionPrompt: true
+      suppressCompletionPrompt: true,
+      skipBackup: context.noBackup
     };
     
     // The engine expects certain globals to exist

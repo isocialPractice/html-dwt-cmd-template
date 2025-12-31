@@ -41,6 +41,9 @@ Run from your site root directory (the directory containing a `Templates/` folde
 # Update all files automatically without prompts
 html-dwt-cmd update-all Templates/main.dwt --auto-apply
 
+# Update without creating backups (faster, use with version control)
+html-dwt-cmd update-all Templates/main.dwt --auto-apply --no-backup
+
 # Update with prompts for each change
 html-dwt-cmd update-all Templates/main.dwt
 
@@ -74,11 +77,16 @@ Updates all HTML files that reference the specified template.
 
 **Options:**
 - `--auto-apply` / `-a` - Apply changes without prompting (recommended for automation)
+- `--no-backup` - Skip creating backups before updates (use with caution)
 - `--cwd <path>` - Set working directory (defaults to current directory)
 
-**Example:**
+**Examples:**
 ```bash
+# Update with automatic backups (recommended)
 html-dwt-cmd update-all Templates/page.dwt --auto-apply
+
+# Update without creating backups (faster, but no rollback option)
+html-dwt-cmd update-all Templates/page.dwt --auto-apply --no-backup
 ```
 
 **What it does:**

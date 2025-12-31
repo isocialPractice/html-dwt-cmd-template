@@ -26,6 +26,7 @@ function parseArgs(argv: string[]): {
   instancePath?: string;
   outputPath?: string;
   autoApply?: boolean;
+  noBackup?: boolean;
   help?: boolean;
   cwd?: string;
 } {
@@ -33,6 +34,7 @@ function parseArgs(argv: string[]): {
   const result: ReturnType<typeof parseArgs> = {
     command: args[0] || 'help',
     autoApply: false,
+    noBackup: false,
     help: false,
     cwd: process.cwd()
   };
@@ -56,6 +58,8 @@ function parseArgs(argv: string[]): {
       result.outputPath = args[++i];
     } else if (arg === '--auto-apply' || arg === '-a') {
       result.autoApply = true;
+    } else if (arg === '--no-backup') {
+      result.noBackup = true;
     } else if (arg === '--cwd') {
       result.cwd = args[++i];
     } else if (!result.templatePath && !arg.startsWith('--')) {
@@ -88,6 +92,7 @@ OPTIONS:
   --instance, -i <path>   Path to the instance file
   --output, -o <path>     Output path for created files
   --auto-apply, -a        Automatically apply changes without prompting
+  --no-backup             Skip creating backups before updates
   --cwd <path>            Set working directory (site root)
   --help, -h              Show help for a command
 
@@ -97,6 +102,9 @@ EXAMPLES:
 
   # Update all files automatically without prompts
   html-dwt-cmd update-all Templates/main.dwt --auto-apply
+
+  # Update without creating backups (use with caution)
+  html-dwt-cmd update-all Templates/main.dwt --auto-apply --no-backup
 
   # Find all pages using a template
   html-dwt-cmd find-instances Templates/main.dwt
@@ -162,7 +170,8 @@ async function main() {
 
   const context: CliContext = {
     siteRoot,
-    autoApply: args.autoApply || false
+    autoApply: args.autoApply || false,
+    noBackup: args.noBackup || false
   };
 
   try {

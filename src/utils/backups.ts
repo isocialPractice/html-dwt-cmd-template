@@ -19,7 +19,12 @@ export function getLastBackupInfo(): LastBackupInfo | undefined {
   return lastBackupInfo;
 }
 
-export async function createHtmlBackups(instances: Uri[], templatePath: string): Promise<string> {
+export async function createHtmlBackups(instances: Uri[], templatePath: string, skipBackup: boolean = false): Promise<string> {
+  // Skip backup creation if requested
+  if (skipBackup) {
+    return ''; // Return empty string to indicate no backup was created
+  }
+
   // Get template name without extension for folder naming
   const templateName = path.basename(templatePath, '.dwt');
 

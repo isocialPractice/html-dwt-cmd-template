@@ -29,6 +29,8 @@ export interface UpdateHtmlBasedOnTemplateOptions {
   suppressCompletionPrompt?: boolean;
   // Internal: skip the editable-attributes parent substitution phase when re-invoking on a child template
   skipEditableAttributesPhase?: boolean;
+  // Skip creating backups before updates
+  skipBackup?: boolean;
 }
 
 // NOTE: For maintainability and minimal risk, we lifted the implementation as-is from extension.ts
@@ -1353,8 +1355,13 @@ export async function updateHtmlBasedOnTemplate(
       const toBackup = Array.from(toBackupMap.values());
       if (toBackup.length > 0) {
         try {
-          await createHtmlBackups(toBackup, templatePath);
-          outputChannel?.appendLine(`[BACKUP] Created backup for ${toBackup.length} item(s).`);
+          const skipBackup = options?.skipBackup || false;
+          await createHtmlBackups(toBackup, templatePath, skipBackup);
+          if (!skipBackup) {
+            outputChannel?.appendLine(`[BACKUP] Created backup for ${toBackup.length} item(s).`);
+          } else {
+            outputChannel?.appendLine(`[BACKUP] Skipped backup creation (--no-backup flag set)`);
+          }
         } catch (e) {
           console.warn('[DW-ENGINE] Failed to create backups:', e);
         }
