@@ -8,6 +8,7 @@ A command-line tool for managing Dreamweaver-style HTML templates without requir
 - ✅ **Preserve editable regions** while updating non-editable content
 - ✅ **Automatic backups** before every update
 - ✅ **Pattern-based file discovery** (supports `**/*.{html,htm,php}`)
+- ✅ **Symlink-aware traversal** that follows in-site junctions and symlinks while avoiding duplicate or looped scans
 - ✅ **Template/instance synchronization** with diff-based safety workflows
 - ✅ **Optional and repeating regions** support
 - ✅ **Clean exit** - no hanging processes
@@ -40,6 +41,9 @@ Run from your site root directory (the directory containing a `Templates/` folde
 ```bash
 # Update all files automatically without prompts
 html-dwt-cmd update-all Templates/main.dwt --auto-apply
+
+# Update only files in one folder
+html-dwt-cmd update-folder pages/tutorials Templates/main.dwt --auto-apply
 
 # Update without creating backups (faster, use with version control)
 html-dwt-cmd update-all Templates/main.dwt --auto-apply --no-backup
@@ -97,6 +101,30 @@ html-dwt-cmd update-all Templates/page.dwt --auto-apply --no-backup
 5. Updates non-editable content from template
 6. Writes updated files
 
+### `update-folder <folder> <template>`
+
+Updates only HTML/PHP files inside the specified working-directory-relative folder that reference the specified template.
+
+**Options:**
+- `--auto-apply` / `-a` - Apply changes without prompting (recommended for automation)
+- `--no-backup` - Skip creating backups before updates (use with caution)
+- `--cwd <path>` - Set working directory (defaults to current directory)
+
+**Examples:**
+```bash
+# Update only the tutorial pages folder
+html-dwt-cmd update-folder pages/tutorials Templates/main.dwt --auto-apply
+
+# Update only the tutorial pages folder without backups
+html-dwt-cmd update-folder pages/tutorials Templates/main.dwt --auto-apply --no-backup
+```
+
+**What it does:**
+1. Resolves the folder relative to the working directory
+2. Throws a custom error if the folder does not exist
+3. Finds only files inside that folder that reference the specified template
+4. Updates only those files
+
 ### `find-instances <template>`
 
 Find and list all HTML/PHP files that use the specified template.
@@ -152,6 +180,7 @@ The tool automatically:
 
 - **Includes:** `**/*.html`, `**/*.htm`, `**/*.php`
 - **Excludes:** `Templates/`, `.html-dwt-cmd-template-backups/`, `.html-dwt-template-backups/`
+- **Follows symlinks safely:** files and folders reached through a path inside the site are processed through that logical site path, and duplicate resolved targets are updated once
 
 ## Directory Structure
 
@@ -215,6 +244,10 @@ Backups are automatically created in `.html-dwt-cmd-template-backups/` before an
 ### Template not found
 
 Ensure the template path is relative to the site root (where you run the command).
+
+### Long scans or linked folders
+
+When the CLI is scanning a large site tree or traversing linked folders, press `Ctrl+C` once to request cancellation. Press `Ctrl+C` a second time to force the process to exit immediately.
 
 ### No instances found
 

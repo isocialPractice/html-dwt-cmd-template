@@ -4,19 +4,64 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { getRealPathSafe, isPathInsideRoot, resolveFileSystemEntry } from '../../utils/fileSystemSafety';
+import { isTemplateFilePath } from '../../utils/templatePaths';
+
+function collectTemplateCandidates(siteRoot: string): vscode.Uri[] {
+  const templatesRoot = path.join(siteRoot, 'Templates');
+  const templatesRootInfo = resolveFileSystemEntry(templatesRoot);
+  if (!templatesRootInfo || !templatesRootInfo.isDirectory) {
+    return [];
+  }
+
+  const candidates: vscode.Uri[] = [];
+  const seenRealPaths = new Set<string>();
+
+  try {
+    const entries = fs.readdirSync(templatesRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      const candidatePath = path.join(templatesRoot, entry.name);
+      const candidateInfo = resolveFileSystemEntry(candidatePath);
+      if (!candidateInfo || !candidateInfo.isFile) {
+        continue;
+      }
+
+      if (!isTemplateFilePath(candidateInfo.logicalPath)) {
+        continue;
+      }
+
+      if (seenRealPaths.has(candidateInfo.realPath)) {
+        continue;
+      }
+
+      seenRealPaths.add(candidateInfo.realPath);
+      candidates.push(vscode.Uri.file(candidateInfo.logicalPath));
+    }
+  } catch (error) {
+    console.error(`Error reading template directory ${templatesRoot}:`, error);
+  }
+
+  return candidates;
+}
 
 export async function findChildTemplates(templatePath: string): Promise<vscode.Uri[]> {
   const childTemplates: vscode.Uri[] = [];
   const templateName = path.basename(templatePath).toLowerCase();
   const templateDir = path.dirname(templatePath);
   const siteRoot = path.dirname(templateDir);
+  const templateRealPath = getRealPathSafe(templatePath);
   const relativeTemplatePath = path.relative(siteRoot, templatePath).replace(/\\/g, '/');
   const expectedReference = relativeTemplatePath.startsWith('..') ? undefined : `/${relativeTemplatePath}`.toLowerCase();
+  const seenTemplates = new Set<string>();
 
   try {
-    const templateFiles = await vscode.workspace.findFiles('**/Templates/*.dwt', '{**/node_modules/**,**/.html-dwt-cmd-template-backups/**}');
+    const templateFiles = collectTemplateCandidates(siteRoot);
     for (const templateFile of templateFiles) {
-      if (templateFile.fsPath === templatePath) continue;
+      const templateInfo = resolveFileSystemEntry(templateFile.fsPath);
+      if (!templateInfo || !templateInfo.isFile) continue;
+      if (!isPathInsideRoot(templateInfo.logicalPath, siteRoot)) continue;
+      if (templateInfo.realPath === templateRealPath || seenTemplates.has(templateInfo.realPath)) continue;
+
       try {
         const content = fs.readFileSync(templateFile.fsPath, 'utf8');
         const headSlice = content.slice(0, 600);
@@ -28,9 +73,8 @@ export async function findChildTemplates(templatePath: string): Promise<vscode.U
           const matchesByName = referencedTemplateName === templateName;
           const matchesByPath = expectedReference ? referencedTemplate.toLowerCase() === expectedReference : false;
           if (matchesByName || matchesByPath) {
-            if (!childTemplates.some(t => t.fsPath === templateFile.fsPath)) {
-              childTemplates.push(templateFile);
-            }
+            seenTemplates.add(templateInfo.realPath);
+            childTemplates.push(templateFile);
           }
         }
       } catch (error) {

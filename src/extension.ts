@@ -19,6 +19,7 @@ import { findRepeatBlockAtCursor, normalizeRepeatColorsIfNeeded } from './featur
 import { setupTemplateWatcher as createTemplateWatcher } from './features/update/templateWatcher';
 import { parseTemplateParameters, parseInstanceParameters, TemplateParam, InstanceParameters } from './features/update/params';
 import { getInstanceParameters as getInstanceParametersStore, setInstanceParameters as setInstanceParametersStore } from './features/update/paramState';
+import { isPathInsideRoot, resolveFileSystemEntry } from './utils/fileSystemSafety';
 import { ensureWorkspaceContext } from './utils/workspaceContext';
 import { findChildTemplates, findAllChildTemplatesRecursive } from './features/update/templateHierarchy';
 import { createHtmlBackups, restoreHtmlFromBackup, getLastBackupInfo } from './utils/backups';
@@ -78,16 +79,24 @@ async function updateChildTemplateLikeDreamweaver(
 // Find only direct instance files of the provided template (exclude other templates)
 async function findTemplateInstances(templatePath: string): Promise<vscode.Uri[]> {
   const templateName = path.basename(templatePath);
+  const siteRoot = path.dirname(path.dirname(templatePath));
   const files = await vscode.workspace.findFiles('**/*.{html,htm,php}', '**/Templates/**');
   const matches: vscode.Uri[] = [];
+  const seenMatches = new Set<string>();
   for (const uri of files) {
     try {
+      const entryInfo = resolveFileSystemEntry(uri.fsPath);
+      if (!entryInfo || !entryInfo.isFile) continue;
+      if (!isPathInsideRoot(entryInfo.logicalPath, siteRoot)) continue;
+      if (seenMatches.has(entryInfo.realPath)) continue;
+
       // skip .dwt files themselves (templates are not instances)
       if (/\.dwt$/i.test(uri.fsPath)) continue;
       const text = fs.readFileSync(uri.fsPath, 'utf8');
       const m = /<!--\s*InstanceBegin\s+template="([^"]+)"[^>]*-->/i.exec(text);
       const ref = m?.[1];
       if (ref && path.basename(ref) === templateName) {
+          seenMatches.add(entryInfo.realPath);
           matches.push(uri);
       }
     } catch {}

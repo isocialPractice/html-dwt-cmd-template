@@ -24,9 +24,51 @@ export interface CliContext {
   noBackup: boolean;
 }
 
+export class CliFolderNotFoundError extends Error {
+  constructor(folderPath: string) {
+    super(`Folder not found in working directory: ${folderPath}`);
+    this.name = 'CliFolderNotFoundError';
+  }
+}
+
+export class CliFolderPathError extends Error {
+  constructor(folderPath: string) {
+    super(`Folder path must stay within the working directory: ${folderPath}`);
+    this.name = 'CliFolderPathError';
+  }
+}
+
 export async function initializeCLI(siteRoot: string): Promise<void> {
   setPlatform(createCLIPlatform(siteRoot));
   initializeLogger();
+}
+
+function readFileHead(filePath: string, maxBytes: number = 4096): string {
+  const fd = fs.openSync(filePath, 'r');
+
+  try {
+    const buffer = Buffer.allocUnsafe(maxBytes);
+    const bytesRead = fs.readSync(fd, buffer, 0, maxBytes, 0);
+    return buffer.toString('utf8', 0, bytesRead);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function isPathInsideDirectory(candidatePath: string, directoryPath: string): boolean {
+  const relativePath = path.relative(directoryPath, candidatePath);
+  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+}
+
+function resolveScopedFolder(siteRoot: string, folderPath: string): string {
+  const resolvedFolderPath = path.resolve(siteRoot, folderPath);
+  if (!isPathInsideDirectory(resolvedFolderPath, siteRoot)) {
+    throw new CliFolderPathError(folderPath);
+  }
+  if (!fs.existsSync(resolvedFolderPath) || !fs.statSync(resolvedFolderPath).isDirectory()) {
+    throw new CliFolderNotFoundError(folderPath);
+  }
+  return resolvedFolderPath;
 }
 
 // Helper to convert our URI to vscode-like URI
@@ -80,6 +122,54 @@ export async function updateAllFiles(context: CliContext, templatePath: string):
     console.log('    Changes will be backed up and can be reviewed/reverted.');
     process.exit(1);
   }
+
+  await runTemplateUpdate(
+    context,
+    fullTemplatePath,
+    async (resolvedTemplatePath: string) => findInstancesForTemplate(context.siteRoot, resolvedTemplatePath),
+    undefined,
+    'cli:update-all'
+  );
+}
+
+export async function updateFolderFiles(context: CliContext, folderPath: string, templatePath: string): Promise<void> {
+  const fullTemplatePath = path.isAbsolute(templatePath) ? templatePath : path.join(context.siteRoot, templatePath);
+
+  if (!fs.existsSync(fullTemplatePath)) {
+    console.error(`Template file not found: ${fullTemplatePath}`);
+    process.exit(1);
+  }
+
+  if (!context.autoApply) {
+    console.log('⚠️  CLI mode requires --auto-apply flag for non-interactive operation.');
+    console.log('    Changes will be backed up and can be reviewed/reverted.');
+    process.exit(1);
+  }
+
+  const scopedFolderPath = resolveScopedFolder(context.siteRoot, folderPath);
+  const relativeFolderPath = path.relative(context.siteRoot, scopedFolderPath) || '.';
+
+  console.log(`Updating folder using template: ${path.basename(fullTemplatePath)}`);
+  console.log(`Site root: ${context.siteRoot}`);
+  console.log(`Folder: ${relativeFolderPath}`);
+  console.log(`Auto-apply: ${context.autoApply ? 'Yes' : 'No'}\n`);
+
+  await runTemplateUpdate(
+    context,
+    fullTemplatePath,
+    async (resolvedTemplatePath: string) => findInstancesForTemplate(context.siteRoot, resolvedTemplatePath, scopedFolderPath),
+    async () => [],
+    'cli:update-folder'
+  );
+}
+
+async function runTemplateUpdate(
+  context: CliContext,
+  fullTemplatePath: string,
+  findTemplateInstances: (templatePath: string) => Promise<any[]>,
+  findChildTemplatesOverride: ((templatePath: string) => Promise<any[]>) | undefined,
+  completionContext: string
+): Promise<void> {
   
   try {
     const platform = getPlatform();
@@ -102,9 +192,8 @@ export async function updateAllFiles(context: CliContext, templatePath: string):
       templateUri,
       options,
       {
-        findTemplateInstances: async (templatePath: string) => {
-          return await findInstancesForTemplate(context.siteRoot, templatePath);
-        },
+        findTemplateInstances,
+        findChildTemplates: findChildTemplatesOverride,
         updateChildTemplateLikeDreamweaver: async (childUri: any, parentPath: string, opts?: any) => {
           return await engineUpdateHtml(childUri, parentPath, opts || {}, createEngineDeps(context));
         },
@@ -123,26 +212,30 @@ export async function updateAllFiles(context: CliContext, templatePath: string):
     );
     
     console.log('\n✅ Update completed successfully!');
-    logProcessCompletion('cli:update-all', 0);
+    logProcessCompletion(completionContext, 0);
   } catch (error) {
     console.error('\n❌ Update failed:', error instanceof Error ? error.message : String(error));
-    logProcessCompletion('cli:update-all', 1);
+    logProcessCompletion(completionContext, 1);
     process.exit(1);
   }
 }
 
 // Helper to find instances of a template
-async function findInstancesForTemplate(siteRoot: string, templatePath: string): Promise<any[]> {
+async function findInstancesForTemplate(siteRoot: string, templatePath: string, scopedFolderPath?: string): Promise<any[]> {
   const platform = getPlatform();
   const templateName = path.basename(templatePath);
-  
-  const files = await platform.workspace.findFiles('**/*.{html,htm,php}', '**/{Templates,.html-dwt-cmd-template-backups,.html-dwt-template-backups,.html-dwt-cmd-template-temp}/**');
-  
   const instances: any[] = [];
+
+  const files = await platform.workspace.findFiles('**/*.{html,htm,php}', '**/{Templates,.html-dwt-cmd-template-backups,.html-dwt-template-backups,.html-dwt-cmd-template-temp}/**');
+
   for (const uri of files) {
     try {
-      const content = fs.readFileSync(uri.fsPath, 'utf8');
-      const instanceBeginMatch = content.match(/<!--\s*InstanceBegin\s+template="([^"]+)"[^>]*-->/i);
+      if (scopedFolderPath && !isPathInsideDirectory(uri.fsPath, scopedFolderPath)) {
+        continue;
+      }
+
+      const contentHead = readFileHead(uri.fsPath);
+      const instanceBeginMatch = contentHead.match(/<!--\s*InstanceBegin\s+template="([^"]+)"[^>]*-->/i);
       if (instanceBeginMatch) {
         const usedTemplate = path.basename(instanceBeginMatch[1]);
         if (usedTemplate === templateName) {

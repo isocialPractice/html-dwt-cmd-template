@@ -1179,6 +1179,7 @@ export async function updateHtmlBasedOnTemplate(
   options: UpdateHtmlBasedOnTemplateOptions,
   deps: {
     findTemplateInstances: (templatePath: string) => Promise<vscode.Uri[]>;
+    findChildTemplates?: (templatePath: string) => Promise<vscode.Uri[]>;
     updateChildTemplateLikeDreamweaver: (childTemplateUri: vscode.Uri, parentTemplatePath: string, mergeOptions?: UpdateHtmlMergeOptions) => Promise<MergeResult>;
     updateHtmlLikeDreamweaver: (instanceUri: vscode.Uri, templatePath: string, options: UpdateHtmlMergeOptions) => Promise<MergeResult>;
     getOutputChannel: () => vscode.OutputChannel;
@@ -1244,7 +1245,9 @@ export async function updateHtmlBasedOnTemplate(
       const instances = await deps.findTemplateInstances(templatePath);
 
       // Step 2: Find child templates separately (these will be updated differently)
-      const childTemplates = await findChildTemplates(templatePath);
+      const childTemplates = deps.findChildTemplates
+        ? await deps.findChildTemplates(templatePath)
+        : await findChildTemplates(templatePath);
 
       if (token.isCancellationRequested) {
         deps.setCancelRun(true);

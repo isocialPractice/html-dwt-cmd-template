@@ -20,6 +20,47 @@ import {
   CancellationToken,
   ProgressOptions
 } from './types';
+import { isPathInsideRoot, resolveFileSystemEntry } from '../utils/fileSystemSafety';
+
+const CLI_SCAN_YIELD_INTERVAL = 200;
+
+let cliCancellationRequested = false;
+
+function resetCliCancellation(): void {
+  cliCancellationRequested = false;
+}
+
+function requestCliCancellation(): void {
+  cliCancellationRequested = true;
+}
+
+function exitIfCliCancelled(): void {
+  if (cliCancellationRequested) {
+    process.exit(130);
+  }
+}
+
+async function yieldDuringCliScan(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  exitIfCliCancelled();
+}
+
+function resolveDirentEntry(dir: string, entry: fs.Dirent): ReturnType<typeof resolveFileSystemEntry> {
+  const entryPath = path.join(dir, entry.name);
+  const logicalPath = path.resolve(entryPath);
+
+  if (entry.isSymbolicLink()) {
+    return resolveFileSystemEntry(entryPath);
+  }
+
+  return {
+    logicalPath,
+    realPath: logicalPath,
+    isDirectory: entry.isDirectory(),
+    isFile: entry.isFile(),
+    isSymbolicLink: false
+  };
+}
 
 // Simple Uri implementation for CLI
 export class CliUri implements Uri {
@@ -311,6 +352,7 @@ export class CliUserInteraction implements UserInteraction {
     task: (progress: Progress, token: CancellationToken) => Promise<T>
   ): Promise<T> {
     console.log(`\n${options.title}`);
+    resetCliCancellation();
     
     const progress: Progress = {
       report: (value) => {
@@ -324,8 +366,16 @@ export class CliUserInteraction implements UserInteraction {
     
     // Setup Ctrl+C handler if cancellable
     if (options.cancellable) {
+          let sigintCount = 0;
       const handler = () => {
-        console.log('\nCancelling...');
+            sigintCount += 1;
+            if (sigintCount > 1) {
+              console.log('\nForce exiting...');
+              process.exit(130);
+            }
+
+            console.log('\nCancelling... Press Ctrl+C again to force exit.');
+            requestCliCancellation();
         token.cancel();
       };
       process.on('SIGINT', handler);
@@ -334,6 +384,7 @@ export class CliUserInteraction implements UserInteraction {
         return await task(progress, token);
       } finally {
         process.off('SIGINT', handler);
+            resetCliCancellation();
       }
     }
     
@@ -410,6 +461,8 @@ export class CliWorkspace implements Workspace {
 
     const rootPath = this.workspaceFolders[0].uri.fsPath;
     const results: Uri[] = [];
+    const visitedDirectories = new Set<string>();
+    const seenFiles = new Set<string>();
 
     // Expand brace patterns like *.{html,htm,php} to multiple patterns
     const expandBraces = (pattern: string): string[] => {
@@ -462,31 +515,67 @@ export class CliWorkspace implements Workspace {
       return new RegExp(regexPattern);
     });
 
-    const walkDir = (dir: string) => {
-      const files = fs.readdirSync(dir);
+    let scannedEntries = 0;
+    const pendingDirectories: string[] = [rootPath];
+
+    while (pendingDirectories.length > 0) {
+      exitIfCliCancelled();
+      const dir = pendingDirectories.pop()!;
+      const directoryInfo = resolveFileSystemEntry(dir);
+      if (!directoryInfo || !directoryInfo.isDirectory) {
+        continue;
+      }
+
+      if (!isPathInsideRoot(directoryInfo.logicalPath, rootPath)) {
+        continue;
+      }
+
+      if (visitedDirectories.has(directoryInfo.realPath)) {
+        continue;
+      }
+
+      visitedDirectories.add(directoryInfo.realPath);
+      const files = fs.readdirSync(dir, { withFileTypes: true });
       
       for (const file of files) {
-        const filePath = path.join(dir, file);
+        exitIfCliCancelled();
+        const filePath = path.join(dir, file.name);
         const relativePath = path.relative(rootPath, filePath).replace(/\\/g, '/');
-        
-        const stat = fs.statSync(filePath);
-        
-        if (stat.isDirectory()) {
+
+        const fileInfo = resolveDirentEntry(dir, file);
+        if (!fileInfo) {
+          continue;
+        }
+
+        if (!isPathInsideRoot(fileInfo.logicalPath, rootPath)) {
+          continue;
+        }
+
+        if (fileInfo.isDirectory) {
           // Simple directory exclusion check - skip backup and template dirs
-          if (file === 'Templates' || file.startsWith('.html-dwt-')) {
+          if (file.name === 'Templates' || file.name.startsWith('.html-dwt-')) {
             continue;
           }
-          walkDir(filePath);
+          pendingDirectories.push(filePath);
         } else {
+          if (!fileInfo.isFile || seenFiles.has(fileInfo.realPath)) {
+            continue;
+          }
+
           // Check if file path should be included
           if (includeRegexes.some(regex => regex.test(relativePath))) {
+            seenFiles.add(fileInfo.realPath);
             results.push(new CliUri(filePath));
           }
         }
-      }
-    };
 
-    walkDir(rootPath);
+        scannedEntries += 1;
+        if (scannedEntries % CLI_SCAN_YIELD_INTERVAL === 0) {
+          await yieldDuringCliScan();
+        }
+      }
+    }
+
     return results;
   }
 

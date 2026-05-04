@@ -4,6 +4,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { isPathInsideRoot, resolveFileSystemEntry } from '../utils/fileSystemSafety';
 import { logProcessCompletion as logProcessCompletionShared } from '../utils/logger';
 
 export function registerCreatePageFromTemplateCommand(context: vscode.ExtensionContext): vscode.Disposable {
@@ -32,7 +33,7 @@ export function registerCreatePageFromTemplateCommand(context: vscode.ExtensionC
       let found: string | undefined;
       for (let i = 0; i < 6; i++) { // limit ascent to avoid runaway
         const candidate = path.join(current, 'Templates');
-        if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+        if (resolveFileSystemEntry(candidate)?.isDirectory) {
           if (fs.existsSync(path.join(candidate, path.basename(templatePath)))) {
             found = current;
             break;
@@ -49,22 +50,49 @@ export function registerCreatePageFromTemplateCommand(context: vscode.ExtensionC
         return;
       }
     }
+    const visitedDirectories = new Set<string>();
 
     // Build folder tree structure
     interface FolderNode { name: string; fullPath: string; children: FolderNode[]; }
     function readFolders(dir: string): FolderNode {
       const node: FolderNode = { name: path.basename(dir), fullPath: dir, children: [] };
+      const directoryInfo = resolveFileSystemEntry(dir);
+      if (!directoryInfo || !directoryInfo.isDirectory) {
+        return node;
+      }
+
+      if (!isPathInsideRoot(directoryInfo.logicalPath, siteRoot)) {
+        return node;
+      }
+
+      if (visitedDirectories.has(directoryInfo.realPath)) {
+        return node;
+      }
+
+      visitedDirectories.add(directoryInfo.realPath);
+
       try {
         const entries = fs.readdirSync(dir, { withFileTypes: true });
         for (const e of entries) {
-          if (e.isDirectory()) {
-            const fullChild = path.join(dir, e.name);
-            const lower = e.name.toLowerCase();
-            // Skip Templates root itself for destination + skip internal metadata folders
-            if (lower === 'templates' && fullChild === path.join(siteRoot, 'Templates')) continue;
-            if (lower.startsWith('.dwt-template') || lower.startsWith('.dwt-site-template')) continue;
-            node.children.push(readFolders(fullChild));
+          const fullChild = path.join(dir, e.name);
+          const childInfo = resolveFileSystemEntry(fullChild);
+          if (!childInfo || !childInfo.isDirectory) {
+            continue;
           }
+
+          if (!isPathInsideRoot(childInfo.logicalPath, siteRoot)) {
+            continue;
+          }
+
+          if (visitedDirectories.has(childInfo.realPath)) {
+            continue;
+          }
+
+          const lower = e.name.toLowerCase();
+          // Skip Templates root itself for destination + skip internal metadata folders
+          if (lower === 'templates' && fullChild === path.join(siteRoot, 'Templates')) continue;
+          if (lower.startsWith('.dwt-template') || lower.startsWith('.dwt-site-template')) continue;
+          node.children.push(readFolders(fullChild));
         }
         node.children.sort((a, b) => a.name.localeCompare(b.name));
       } catch {}

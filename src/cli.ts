@@ -12,6 +12,7 @@ import {
   initializeCLI,
   syncTemplate as syncTemplateCmd,
   updateAllFiles as updateAllFilesCmd,
+  updateFolderFiles as updateFolderFilesCmd,
   findInstances as findInstancesCmd,
   createPage as createPageCmd,
   showRegions as showRegionsCmd,
@@ -22,6 +23,7 @@ import {
 // Parse command-line arguments
 function parseArgs(argv: string[]): {
   command: string;
+  folderPath?: string;
   templatePath?: string;
   instancePath?: string;
   outputPath?: string;
@@ -46,6 +48,8 @@ function parseArgs(argv: string[]): {
     return result;
   }
 
+  const positionalArgs: string[] = [];
+
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--help' || arg === '-h') {
@@ -62,9 +66,16 @@ function parseArgs(argv: string[]): {
       result.noBackup = true;
     } else if (arg === '--cwd') {
       result.cwd = args[++i];
-    } else if (!result.templatePath && !arg.startsWith('--')) {
-      result.templatePath = arg;
+    } else if (!arg.startsWith('--')) {
+      positionalArgs.push(arg);
     }
+  }
+
+  if (result.command === 'update-folder') {
+    result.folderPath = positionalArgs[0];
+    result.templatePath = result.templatePath ?? positionalArgs[1];
+  } else {
+    result.templatePath = result.templatePath ?? positionalArgs[0];
   }
 
   return result;
@@ -81,6 +92,8 @@ USAGE:
 COMMANDS:
   sync [template]          Sync a template file with its instances
   update-all [template]    Update all files using the specified template
+  update-folder [folder] [template]
+                          Update only one folder's files using the specified template
   find-instances [template] Find all instance files using a template
   create-page [template]   Create a new page from a template
   show-regions [file]      Show editable regions in a file
@@ -106,6 +119,9 @@ EXAMPLES:
   # Update without creating backups (use with caution)
   html-dwt-cmd update-all Templates/main.dwt --auto-apply --no-backup
 
+  # Update only one folder
+  html-dwt-cmd update-folder interactive Templates/main.dwt --auto-apply --no-backup
+
   # Find all pages using a template
   html-dwt-cmd find-instances Templates/main.dwt
 
@@ -128,12 +144,6 @@ ENVIRONMENT:
 }
 
 async function main() {
-  // Set a global timeout of 20 seconds for debugging
-  const timeoutHandle = setTimeout(() => {
-    console.error('\n⏱️  Operation timed out after 20 seconds');
-    process.exit(124);
-  }, 20000);
-
   const args = parseArgs(process.argv);
 
   // Show help without requiring Templates directory
@@ -194,6 +204,15 @@ async function main() {
         await updateAllFilesCmd(context, args.templatePath);
         break;
 
+      case 'update-folder':
+        if (!args.folderPath || !args.templatePath) {
+          console.error('Error: Folder path and template path are required');
+          console.error('Usage: html-dwt-cmd update-folder <folder-path> <template-path>');
+          process.exit(1);
+        }
+        await updateFolderFilesCmd(context, args.folderPath, args.templatePath);
+        break;
+
       case 'find-instances':
         if (!args.templatePath) {
           console.error('Error: Template path is required');
@@ -233,8 +252,6 @@ async function main() {
   } catch (error) {
     console.error('Error:', error instanceof Error ? error.message : String(error));
     process.exit(1);
-  } finally {
-    clearTimeout(timeoutHandle);
   }
   
   // Exit successfully
